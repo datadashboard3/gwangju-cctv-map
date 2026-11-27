@@ -81,6 +81,14 @@ button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid 
     </div>
   </div>
   <div class="sec">
+    <h2>대상 범위</h2>
+    <div class="seg" id="scopeSeg">
+      <button data-s="all" aria-pressed="true">전체</button>
+      <button data-s="rfp" aria-pressed="false">RFP 대상(방범용)</button>
+      <button data-s="etc" aria-pressed="false">기타 용도</button>
+    </div>
+  </div>
+  <div class="sec">
     <h2>표시 방식</h2>
     <div class="seg" id="viewSeg">
       <button data-v="cluster" aria-pressed="true">묶음</button>
@@ -91,7 +99,8 @@ button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid 
   <div class="sec">
     <h2>색 구분</h2>
     <div class="seg" id="colorSeg">
-      <button data-c="g" aria-pressed="true">내구연한</button>
+      <button data-c="t" aria-pressed="true">RFP 대상</button>
+      <button data-c="g" aria-pressed="false">내구연한</button>
       <button data-c="d" aria-pressed="false">관리부서</button>
       <button data-c="c" aria-pressed="false">구분코드</button>
     </div>
@@ -115,6 +124,7 @@ button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid 
     </div>
   </div>
   <div class="note">
+    ※ RFP 대상 = 구분코드 CTV001(생활방범)·CTV008(도로방범), 디지털정보과 관리 1,824개소. 2027년 RFP 유지관리 대상(방범용 CCTV)과 개소 수가 일치하며, 그 외(쓰레기·주정차·재난·도로관리 등 타 부서 CCTV)는 유지관리 대상이 아닙니다.<br>
     · 7년 경과 = 설치 후 7년 이상(2019년 이전 설치). 카메라 사양에 연도가 있으면 그 연도, 없으면 지점 설치일 기준.<br>
     · 지점 색은 그 지점에서 가장 오래된 카메라 기준입니다.<br>
     · 카메라대수가 비어 있는 지점은 카메라 0대로 셉니다.<br>
@@ -138,6 +148,8 @@ const GRADES = [
 ];
 const PAL = ['#2457c5','#d7301f','#2e9e5b','#8e44ad','#e67e22','#16a2b8','#b8860b','#c2185b','#5d6d7e','#7cb342'];
 const pts = DATA.pts;
+const T_RFP = 'RFP 대상(방범용)', T_ETC = '기타 용도(대상 아님)';
+pts.forEach(p => p.t = (p.c==='CTV001' || p.c==='CTV008') ? T_RFP : T_ETC);
 document.getElementById('asof').textContent = `자료 기준일 ${DATA.asof} · 내구연한 판정 ${DATA.year}년 기준 · 전체 ${pts.length.toLocaleString()}개 지점`;
 
 function topKeys(key, n){
@@ -145,11 +157,13 @@ function topKeys(key, n){
   return Object.entries(c).sort((a,b)=>b[1]-a[1]).map(e=>e[0]);
 }
 const colorSets = {
+  t: [T_RFP, T_ETC],
   g: GRADES.map(g=>g[0]),
   d: topKeys('d'),
   c: topKeys('c').sort(),
 };
 function colorOf(mode, v){
+  if (mode==='t') return v===T_RFP ? '#003399' : '#f08a3c';
   if (mode==='g'){ const g = GRADES.find(x=>x[0]===v); return g?g[1]:css('--g-unk'); }
   const i = colorSets[mode].indexOf(v);
   return i>=0 && i<PAL.length ? PAL[i] : '#9aa3ad';
@@ -159,7 +173,7 @@ function labelOf(mode, v){
   return v;
 }
 
-const state = { view:'cluster', color:'g', umd:'', q:'', hidden:new Set() };
+const state = { scope:'all', view:'cluster', color:'t', umd:'', q:'', hidden:new Set() };
 
 const map = L.map('map', { preferCanvas:true, zoomControl:true }).setView([37.40, 127.28], 11);
 const base = {
@@ -184,15 +198,16 @@ function popup(p){
   const col = colorOf('g', p.g);
   return `<div class="pop"><h3>${esc(p.n||'(번호 없음)')}</h3>
   <span class="tag" style="background:${col}">${esc(p.g)}${p.mx!=null?` · 최대 ${p.mx}년 경과`:''}</span>
-  <dl><dt>설치위치</dt><dd>${esc(p.l||'-')}</dd><dt>읍면동</dt><dd>${esc(p.u)}</dd>
+  <dl><dt>RFP 대상</dt><dd><b style="color:${p.t===T_RFP?'#003399':'#c0601a'}">${p.t===T_RFP?'대상(방범용)':'대상 아님(기타 용도)'}</b></dd><dt>설치위치</dt><dd>${esc(p.l||'-')}</dd><dt>읍면동</dt><dd>${esc(p.u)}</dd>
   <dt>관리부서</dt><dd>${esc(p.d)}</dd><dt>구분코드</dt><dd>${esc(p.c||'-')}</dd>
   <dt>설치일자</dt><dd>${fmtDate(p.y)}</dd><dt>카메라</dt><dd>${p.k}대${p.k?` (7년 경과 ${p.a}대)`:' (대수 미입력)'}</dd></dl>
   ${p.s.length?`<ul>${p.s.map(s=>`<li>${esc(s)}</li>`).join('')}</ul>`:''}</div>`;
 }
 
+function inScope(p){ return state.scope==='all' || (state.scope==='rfp') === (p.t===T_RFP); }
 function filtered(){
   const q = state.q.trim().toLowerCase();
-  return pts.filter(p => (!state.umd || p.u===state.umd)
+  return pts.filter(p => inScope(p) && (!state.umd || p.u===state.umd)
     && !state.hidden.has(state.color+'|'+p[state.color])
     && (!q || (p.n||'').toLowerCase().includes(q) || (p.l||'').toLowerCase().includes(q)));
 }
@@ -201,7 +216,8 @@ function clusterIcon(cl){
   const ms = cl.getAllChildMarkers();
   let cam=0, aged=0; ms.forEach(m=>{cam+=m.p.k; aged+=m.p.a;});
   const n = ms.length, r = aged/(cam||1);
-  const col = state.color==='g' ? (r>=.6?css('--g-over'):r>=.4?css('--g-7'):r>=.2?css('--g-next'):css('--g-ok')) : '#2457c5';
+  const nr = ms.filter(m=>m.p.t===T_RFP).length;
+  const col = state.color==='t' ? (nr/n>=.5?'#003399':'#f08a3c') : state.color==='g' ? (r>=.6?css('--g-over'):r>=.4?css('--g-7'):r>=.2?css('--g-next'):css('--g-ok')) : '#2457c5';
   const s = n<10?30:n<50?36:n<200?44:52;
   return L.divIcon({html:`<div class="cl" style="width:${s}px;height:${s}px;background:${col}">${n}</div>`, className:'', iconSize:[s,s]});
 }
@@ -229,7 +245,7 @@ function stats(list){
 
 function legend(){
   const mode = state.color, keys = colorSets[mode];
-  const base = pts.filter(p => !state.umd || p.u===state.umd);
+  const base = pts.filter(p => inScope(p) && (!state.umd || p.u===state.umd));
   const cnt = {}; base.forEach(p=>cnt[p[mode]]=(cnt[p[mode]]||0)+1);
   const el = document.getElementById('legend'); el.innerHTML='';
   keys.forEach(k => {
@@ -243,9 +259,10 @@ function legend(){
 
 function mapLegend(){
   const d = document.getElementById('mapLegend');
-  const title = {g:'내구연한 (지점의 가장 오래된 카메라)', d:'관리부서', c:'CCTV 구분코드'}[state.color];
+  const title = {t:'RFP 유지관리 대상 여부', g:'내구연한 (지점의 가장 오래된 카메라)', d:'관리부서', c:'CCTV 구분코드'}[state.color];
   let h = `<b>${title}</b><br>` + colorSets[state.color].slice(0, state.color==='g'?5:PAL.length).map(k=>`<span class="dot" style="background:${colorOf(state.color,k)}"></span>${esc(labelOf(state.color,k))}`).join('<br>');
   if (state.color!=='g' && colorSets[state.color].length>PAL.length) h += `<br><span class="dot" style="background:#9aa3ad"></span>그 외`;
+  if (state.view==='cluster' && state.color==='t') h += `<br><span style="color:#5f6b7a">묶음 색 = 다수가 속한 쪽</span>`;
   if (state.view==='cluster' && state.color==='g') h += `<br><span style="color:#5f6b7a">묶음 색 = 7년 경과 카메라 비율</span>`;
   d.innerHTML = h;
 }
@@ -254,7 +271,7 @@ let sortKey='rate', sortDir=-1;
 function table(){
   const q = state.q.trim().toLowerCase();
   const rows = {};
-  pts.filter(p => !state.hidden.has(state.color+'|'+p[state.color]) && (!q || (p.n||'').toLowerCase().includes(q) || (p.l||'').toLowerCase().includes(q)))
+  pts.filter(p => inScope(p) && !state.hidden.has(state.color+'|'+p[state.color]) && (!q || (p.n||'').toLowerCase().includes(q) || (p.l||'').toLowerCase().includes(q)))
      .forEach(p => { const r = rows[p.u] ||= {u:p.u, site:0, cam:0, aged:0, la:0, lo:0}; r.site++; r.cam+=p.k; r.aged+=p.a; r.la+=p.la; r.lo+=p.lo; });
   const arr = Object.values(rows).map(r => ({...r, rate: r.cam? r.aged/r.cam : 0}));
   arr.sort((a,b)=> sortKey==='u' ? a.u.localeCompare(b.u)*-sortDir : (a[sortKey]-b[sortKey])*sortDir);
@@ -280,7 +297,7 @@ function seg(id, key, attr){
     state[key] = b.dataset[attr]; draw();
   }));
 }
-seg('viewSeg','view','v'); seg('colorSeg','color','c');
+seg('scopeSeg','scope','s'); seg('viewSeg','view','v'); seg('colorSeg','color','c');
 draw();
 const ALL = L.latLngBounds(pts.map(p=>[p.la,p.lo])).pad(0.03);
 function fitAll(){ map.invalidateSize(); if (!state.umd) map.fitBounds(ALL); }
